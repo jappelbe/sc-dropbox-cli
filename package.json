@@ -1,6 +1,6 @@
 {
-  "name": "sc-dropbox-client",
-  "version": "0.0.3",
+  "name": "sc-dropbox-cli",
+  "version": "0.0.4",
   "author": "Jon",
   "repository": {
     "type": "git",
