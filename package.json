@@ -1,0 +1,35 @@
+{
+  "name": "sc-dropbox-client",
+  "version": "0.0.3",
+  "author": "Jon",
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:jappelbe/sc-dropbox-cli.git"
+  },
+  "module": "sc-dropbox.ts",
+  "type": "module",
+  "devDependencies": {
+    "@types/figlet": "^1.5.8",
+    "@types/yargs": "^17.0.32",
+    "bun-types": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "commander": "^11.1.0",
+    "dropbox": "^10.34.0",
+    "figlet": "^1.7.0",
+    "yargs": "^17.7.2"
+  },
+  "scripts": {
+    "build": "npx tsc && chmod u+x ./dist/sc-dropbox.js"
+  },
+  "main": "./dist/sc-dropbox.js",
+  "bin": {
+    "sc-dropbox": "dist/sc-dropbox.js"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/"
+  }
+}
