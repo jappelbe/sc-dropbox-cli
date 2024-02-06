@@ -16,7 +16,7 @@ const program = new Command();
 program
     .name("sc-dropbox")
     .usage("[global options] command")
-    .version("0.0.1")
+    .version("0.0.5")
     .description("SC DropBox CLI for uploading files to dropbox. Designed for use by CI-machines")
     .option('-h, --help', 'usage help')
     .option('-s, --srcFilePath <file path>', 'Path to file to upload')
