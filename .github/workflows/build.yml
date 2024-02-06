@@ -4,8 +4,10 @@
 name: Build
 
 on:
-  release:
-    types: [created]
+  workflow_call:
+  push:
+    branches:
+      - 'master'
 
 jobs:
   build:
