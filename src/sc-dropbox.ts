@@ -16,7 +16,7 @@ const program = new Command();
 program
     .name("sc-dropbox")
     .usage("[global options] command")
-    .version("0.0.5")
+    .version("0.0.6")
     .description("SC DropBox CLI for uploading files to dropbox. Designed for use by CI-machines")
     .option('-h, --help', 'usage help')
     .option('-s, --srcFilePath <file path>', 'Path to file to upload')
@@ -33,6 +33,12 @@ function checkArgs() {
     if (!options.srcFilePath) {
         console.log("Input error, please specify value for srcFilePath")
         program.help({error: true})
+    } else {
+        const exists = fs.existsSync(options.srcFilePath)
+        if (!exists) {
+            console.log(`No such file found! '${options.srcFilePath}'`)
+            program.help({error: true})
+        }
     }
     if (!options.destPath) {
         console.log("Input error, please specify value for destFile")
@@ -80,7 +86,7 @@ async function uploadFile(accessToken: string, srcPath: string, destPath: string
 
     // This uploads basic.js to the root of your dropbox
     try {
-        const dbResp = await dbx.filesUpload({ path: destPath, contents: fileBuffer, content_hash: fileSha256Hash })
+        const dbResp = await dbx.filesUpload({ path: destPath, contents: fileBuffer, content_hash: fileSha256Hash, mode: {".tag": 'overwrite'}})
         console.log(dbResp);
     } catch(e) {
         console.log(`Error uploading file '${e}'`)
@@ -90,7 +96,12 @@ async function uploadFile(accessToken: string, srcPath: string, destPath: string
 
 console.log(textSync('SC-DropBox'))
 
-checkArgs()
-if (accessToken !== undefined) {
-    uploadFile(accessToken, options.srcFilePath, options.destPath)
+try {
+    checkArgs()
+    if (accessToken !== undefined) {
+        uploadFile(accessToken, options.srcFilePath, options.destPath)
+    }
+} catch (e) {
+    console.log("Caught error during upload!")
+    console.log(`${e}`)
 }
