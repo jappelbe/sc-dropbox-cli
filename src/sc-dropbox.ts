@@ -1,6 +1,6 @@
 #! /usr/bin/env node
 
-import { Dropbox, DropboxResponse, Error, files } from 'dropbox'
+import { Dropbox, DropboxResponse, files, DropboxAuth, } from 'dropbox'
 import * as fs from 'fs'
 import * as Path from 'path'
 import { DropboxContentHasherTS }from './libs/ext/dropbox_content_hasher.js'
@@ -16,12 +16,14 @@ const program = new Command();
 program
     .name("sc-dropbox")
     .usage("[global options] command")
-    .version("0.1.0")
+    .version("0.1.1")
     .description("SC DropBox CLI for uploading files to dropbox. Designed for use by CI-machines")
     .option('-h, --help', 'usage help')
     .option('-s, --srcFilePath <file path>', 'Path to file to upload')
     .option('-d, --destPath <path in dropbox>', 'Path in dropbox to store the file')
     .option('-t, --accessToken [dropbox access token]', `Set access token (preferably this should be set in the ENV variable ${ACCESS_TOKEN_ENV_VAR_NAME})`)
+    .option('-r, --refreshToken [dropbox refresh token]', 'Set the refresh token, this will not expire unlike the accessToken')
+    .option('-k, --appKey [appKey / clientId]', 'The appKey to use, must be set with refreshToken')
 
 program.parse(process.argv);
 const options = program.opts();
@@ -44,6 +46,10 @@ function checkArgs() {
         console.log("Input error, please specify value for destFile")
         program.help({error: true})
     }
+    if (options.destPath[0] !== '/') {
+        console.log('Input error, destfile path should be absolute. E.g. --destPath="/mydir/myfile.zip", NOT --destPath="mydir/myfile.zip"')
+        program.help({error: true})
+    }
     if (options.accessToken) {
         accessToken = options.accessToken
     }
@@ -51,8 +57,17 @@ function checkArgs() {
     if (process.env[ACCESS_TOKEN_ENV_VAR_NAME]) {
         accessToken = process.env[ACCESS_TOKEN_ENV_VAR_NAME]
     }
-    if (!accessToken) {
+
+    if (!accessToken && !options.refreshToken) {
         console.log(`Please specify the a DropBox access token with the ENV variable ${ACCESS_TOKEN_ENV_VAR_NAME} or as an input option`)
+        console.log(`Alternatively: Please specify the a DropBox refreshToken as input option`)
+        program.help({error: true})
+    } else if (options.accessToken && options.refreshToken) {
+        console.log(`Please specify only accessToken or refreshToken, not both`)
+        program.help({error: true})
+    }
+    if (options.refreshToken && !options.appKey) {
+        console.log(`You specified a refresh token, appKey is required with refresh token`)
         program.help({error: true})
     }
 }
@@ -85,14 +100,30 @@ async function getFileSha256(filePath: string): Promise<string> {
     return retPromise
 }
 
+async function doDropboxAuth(): Promise<string> {
+    let authOpts: any = {}
+    if (options.refreshToken) {
+        authOpts.refreshToken = options.refreshToken
+        authOpts.clientId = options.appKey
+    } else if (accessToken) {
+        authOpts.accessToken = accessToken
+        return accessToken
+    }
+    const dbxAuth = new DropboxAuth(authOpts)
+    await dbxAuth.checkAndRefreshAccessToken()
+    const resAccessToken = dbxAuth.getAccessToken()
+    return Promise.resolve(resAccessToken)
+}
+
 async function uploadInChunks(filePath: string, destPath: string): Promise<DropboxResponse<files.FileMetadata>> {
     const maxChunkSize = 64 * 1024 * 1024; // 64MB - Dropbox JavaScript API suggested chunk size 8MB, max 150. API doens't allow parallel chunks
                                            // so compromise on 64MB
     var readStream = fs.createReadStream(filePath,{ highWaterMark: maxChunkSize, encoding: undefined });
 
     const fileSize = fs.statSync(filePath).size
-    const dbx = new Dropbox({ accessToken });
-    dbx.filesUploadSessionStart({})
+
+    const finalAccessToken = await doDropboxAuth()
+    const dbx = new Dropbox({accessToken: finalAccessToken})
     let sessionId: undefined | string
     let chunkIdx = 0
     let dataSent = 0
@@ -145,25 +176,17 @@ async function uploadInChunks(filePath: string, destPath: string): Promise<Dropb
     return dbx.filesUploadSessionFinish({ cursor: cursor, commit: commit })
 }
 
-async function uploadFile(accessToken: string, srcPath: string, destPath: string): Promise<void> {
-    const dbx = new Dropbox({ accessToken });
-
+async function uploadFile(srcPath: string, destPath: string): Promise<void> {
     const absFilePath = getAbsFilePath(srcPath)
     const fileExists = fs.existsSync(absFilePath)
     if (!fileExists) {
         return Promise.reject(`Error: File '${absFilePath}' doesn't exist`)
     }
-    
-    console.log('Get SHA256')
-    const fileSha256Hash = await getFileSha256(absFilePath)
 
-    // This uploads basic.js to the root of your dropbox
     try {
         console.log('Upload file')
-        //const dbResp = await dbx.filesUpload({ path: destPath, contents: fileStream, content_hash: fileSha256Hash, mode: {".tag": 'overwrite'}})
         const dbResp = await uploadInChunks(absFilePath, destPath)
 
-        dbx.filesUploadSessionStart({})
         console.log('Done!')
         console.log(dbResp);
     } catch(e) {
@@ -176,8 +199,10 @@ console.log(textSync('SC-DropBox'))
 
 try {
     checkArgs()
-    if (accessToken !== undefined) {
-        uploadFile(accessToken, options.srcFilePath, options.destPath)
+    if (accessToken !== undefined || options.refreshToken !== undefined) {
+        uploadFile(options.srcFilePath, options.destPath)
+    } else {
+        throw "Nothing to do!"
     }
 } catch (e) {
     console.log("Caught error during upload!")
