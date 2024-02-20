@@ -1,6 +1,6 @@
 #! /usr/bin/env node
 
-import { Dropbox, Error, files } from 'dropbox'
+import { Dropbox, DropboxResponse, Error, files } from 'dropbox'
 import * as fs from 'fs'
 import * as Path from 'path'
 import { DropboxContentHasherTS }from './libs/ext/dropbox_content_hasher.js'
@@ -16,7 +16,7 @@ const program = new Command();
 program
     .name("sc-dropbox")
     .usage("[global options] command")
-    .version("0.0.6")
+    .version("0.1.0")
     .description("SC DropBox CLI for uploading files to dropbox. Designed for use by CI-machines")
     .option('-h, --help', 'usage help')
     .option('-s, --srcFilePath <file path>', 'Path to file to upload')
@@ -67,10 +67,82 @@ function getAbsFilePath(path: string): string {
     return absFilePath
 }
 
-function getFileSha256(fileBuffer: Buffer): string {
+async function getFileSha256(filePath: string): Promise<string> {
     const dbContentHasher = new DropboxContentHasherTS
-    dbContentHasher.update(fileBuffer, null)
-    return dbContentHasher.digest('hex')
+    const fileStream: fs.ReadStream = fs.createReadStream(filePath, 'binary')
+    fileStream.on('data', (chunk: Buffer) => {
+        dbContentHasher.update(chunk, undefined)
+    })
+
+    const retPromise = new Promise<string>((resolve) => {
+        fileStream.on('end', ()=> {
+            const sha256Str = dbContentHasher.digest('hex')
+            console.log(`sha256 = ${sha256Str}`)
+            resolve(sha256Str)
+        })
+    })
+
+    return retPromise
+}
+
+async function uploadInChunks(filePath: string, destPath: string): Promise<DropboxResponse<files.FileMetadata>> {
+    const maxChunkSize = 64 * 1024 * 1024; // 64MB - Dropbox JavaScript API suggested chunk size 8MB, max 150. API doens't allow parallel chunks
+                                           // so compromise on 64MB
+    var readStream = fs.createReadStream(filePath,{ highWaterMark: maxChunkSize, encoding: undefined });
+
+    const fileSize = fs.statSync(filePath).size
+    const dbx = new Dropbox({ accessToken });
+    dbx.filesUploadSessionStart({})
+    let sessionId: undefined | string
+    let chunkIdx = 0
+    let dataSent = 0
+    let prevUploadPromise: Promise<DropboxResponse<void>> | undefined
+    const maxWorkers = 1
+    for await (const chunk of readStream) {
+        const dbContentHasher = new DropboxContentHasherTS
+        dbContentHasher.update(chunk, undefined)
+        const sha256Str = dbContentHasher.digest('hex')
+        if (chunkIdx === 0) {
+            console.log('First Chunk')
+            const dbxResp = await dbx.filesUploadSessionStart({ close: false, contents: chunk, content_hash: sha256Str})
+            sessionId = dbxResp.result.session_id
+        } else {
+            if (sessionId === undefined) {
+                throw new Error("uploadInChunks(): No sessionId! Stopping");
+            }
+            console.log(`${Math.round((dataSent * 100) / fileSize)}% done`)
+            const cursor = { session_id: sessionId, offset: dataSent }
+            let response: DropboxResponse<void> | undefined
+            if (prevUploadPromise) {
+                response = await prevUploadPromise
+            }
+            prevUploadPromise = dbx.filesUploadSessionAppendV2({ cursor: cursor, close: false, contents: chunk, content_hash: sha256Str })
+            if (response) {
+                if (response.status < 200 || response.status > 299) {
+                    console.log(`Upload error: ${response.status} on chunk ${chunkIdx}`)
+                    throw new Error(`Upload error: ${response.status} on chunk ${chunkIdx}`)
+                }
+            }
+        }
+        chunkIdx += 1
+        dataSent += chunk.length
+    }
+    if (prevUploadPromise) {
+        const response = await prevUploadPromise
+        if (response) {
+            if (response.status < 200 || response.status > 299) {
+                console.log(`Upload error: ${response.status} on chunk ${chunkIdx}`)
+            }
+        }
+    }
+    
+    if (sessionId === undefined) {
+        throw new Error("uploadInChunks(): File end: No sessionId! Stopping");
+    }
+    console.log(`dataSent=${dataSent}, fileSize = ${fileSize}`)
+    var cursor = { session_id: sessionId, offset: dataSent };
+    var commit = { path: destPath, mode: {".tag": 'overwrite' as 'overwrite'}, autorename: false, mute: false };              
+    return dbx.filesUploadSessionFinish({ cursor: cursor, commit: commit })
 }
 
 async function uploadFile(accessToken: string, srcPath: string, destPath: string): Promise<void> {
@@ -81,12 +153,18 @@ async function uploadFile(accessToken: string, srcPath: string, destPath: string
     if (!fileExists) {
         return Promise.reject(`Error: File '${absFilePath}' doesn't exist`)
     }
-    const fileBuffer: Buffer = fs.readFileSync(absFilePath, null)
-    const fileSha256Hash = getFileSha256(fileBuffer)
+    
+    console.log('Get SHA256')
+    const fileSha256Hash = await getFileSha256(absFilePath)
 
     // This uploads basic.js to the root of your dropbox
     try {
-        const dbResp = await dbx.filesUpload({ path: destPath, contents: fileBuffer, content_hash: fileSha256Hash, mode: {".tag": 'overwrite'}})
+        console.log('Upload file')
+        //const dbResp = await dbx.filesUpload({ path: destPath, contents: fileStream, content_hash: fileSha256Hash, mode: {".tag": 'overwrite'}})
+        const dbResp = await uploadInChunks(absFilePath, destPath)
+
+        dbx.filesUploadSessionStart({})
+        console.log('Done!')
         console.log(dbResp);
     } catch(e) {
         console.log(`Error uploading file '${e}'`)

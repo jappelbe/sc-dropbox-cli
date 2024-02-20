@@ -43,7 +43,7 @@ export class DropboxContentHasherTS {
   constructor() {
   }
 
-  update(data: Buffer, inputEncoding: Encoding) {
+  update(data: Buffer, inputEncoding?: Encoding) {
     if (this._overallHasher === null) {
       throw new Error(
         "can't use this object anymore; you already called digest()");
@@ -79,6 +79,7 @@ export class DropboxContentHasherTS {
       offset = inputPartEnd;
     }
   }
+
   digest(encoding: crypto.BinaryToTextEncoding) {
     if (this._overallHasher === null) {
       throw new Error(
