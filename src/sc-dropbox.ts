@@ -15,7 +15,7 @@ const program = new Command();
 const main = program
     .name("sc-dropbox")
     .usage("[global options] command")
-    .version("0.2.0")
+    .version("0.2.1")
     .description("SC DropBox CLI for uploading files to dropbox. Designed for use by CI-machines")
     .argument('command', 'Command to run [upload, list]')
     .option('-h, --help', 'usage help')
