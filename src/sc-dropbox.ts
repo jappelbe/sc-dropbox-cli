@@ -53,8 +53,8 @@ main.command('list')
 main.command('share')
     .argument('<path>')
     .argument('[users]', 'Comma-separated list of user emails')
+    .option('--accessLevel [access level]', 'AccessLevel for new users. [viewer(default), editor, owner]')
     .option('-h, --help', 'usage help')
-    .option('-r, --recursive', 'Path to file to upload')
     .option('-t, --accessToken [dropbox access token]', `Set access token (preferably this should be set in the ENV variable ${ACCESS_TOKEN_ENV_VAR_NAME})`)
     .option('-r, --refreshToken [dropbox refresh token]', 'Set the refresh token, this will not expire unlike the accessToken')
     .option('-k, --appKey [appKey / clientId]', 'The appKey to use, must be set with refreshToken')
@@ -62,6 +62,7 @@ main.command('share')
         appKey: options.appKey,
         accessToken: options.accessToken,
         refreshToken: options.refreshToken,
+        accessLevel: options.accessLevel,
         path,
         users: users.split(','),
         recursive: options.recursive

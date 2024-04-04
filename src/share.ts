@@ -1,10 +1,13 @@
 import { DropboxClient } from './dropbox.js'
 import { Dropbox, sharing } from 'dropbox'
 
+type TAccesLevels = 'viewer' | 'editor' | 'owner'
+
 interface IShareFile {
     path: string
     users: string[] | undefined
     recursive?: boolean
+    accessLevel?: TAccesLevels
     appKey: string
     accessToken?: string
     refreshToken?: string
@@ -31,11 +34,17 @@ export async function sharePath(opts: IShareFile) {
             })
         }
         console.log(`memberSelectorEmails: ${JSON.stringify(memberSelectorEmails)}`)
+        let accessLevel: sharing.AccessLevel = { '.tag': 'viewer' }
+        if (opts.accessLevel) {
+            accessLevel = { '.tag': opts.accessLevel }
+        }
         if (await dropboxClient.pathIsFile(opts.path)) {
             if (opts.users) {
+                console.log(`Setting '${accessLevel['.tag']}' access to users '${memberSelectorEmails.map((e) => { return e.email }).join(',')}'`)
                 await dbx.sharingAddFileMember({
                     file: opts.path,
-                    members: memberSelectorEmails
+                    members: memberSelectorEmails,
+                    access_level: accessLevel
                 })
             }
         }
