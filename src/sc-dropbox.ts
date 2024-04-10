@@ -18,7 +18,7 @@ const program = new Command()
 program
     .name("sc-dropbox")
     .usage("[global options] command")
-    .version("0.2.11")
+    .version("0.3.0")
     .description("SC DropBox CLI for uploading files to dropbox. Designed for use by CI-machines")
     .option('-t, --accessToken [dropbox access token]', `Set access token (preferably this should be set in the ENV variable ${ACCESS_TOKEN_ENV_VAR_NAME})`)
     .option('-r, --refreshToken [dropbox refresh token]', 'Set the refresh token, this will not expire unlike the accessToken')
