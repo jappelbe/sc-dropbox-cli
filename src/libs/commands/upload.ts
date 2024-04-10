@@ -1,25 +1,19 @@
-import { DropboxClient } from './dropbox.js'
+import { DropboxClient, ILoginOptions } from '../../dropbox.js'
 import { DropboxResponse, files } from 'dropbox'
 import * as fs from 'fs'
 import * as Path from 'path'
-import { DropboxContentHasherTS }from './libs/ext/dropbox_content_hasher.js'
+import { DropboxContentHasherTS }from '../ext/dropbox_content_hasher.js'
 
 interface IUploadFile {
     srcPath: string
     dstPath: string
     recursive?: boolean
-    appKey: string
-    accessToken?: string
-    refreshToken?: string
+    loginOptions: ILoginOptions
 }
 
 export async function uploadFile(opts: IUploadFile) {
-    console.log(JSON.stringify(`opts: ${JSON.stringify(opts)}`))
-    const dropboxClient = new DropboxClient({
-        appKey: opts.appKey,
-        accessToken: opts.accessToken,
-        refreshToken: opts.refreshToken
-    })
+    //console.log(JSON.stringify(`opts: ${JSON.stringify(opts)}`))
+    const dropboxClient = new DropboxClient(opts.loginOptions)
     const dbClient = await dropboxClient
     await dropBoxUploadFile(dbClient, opts.srcPath, opts.dstPath)
 }
@@ -90,8 +84,8 @@ async function uploadInChunks(dropboxClient: DropboxClient, filePath: string, de
         throw new Error("uploadInChunks(): File end: No sessionId! Stopping");
     }
     console.log(`dataSent=${dataSent}, fileSize = ${fileSize}`)
-    var cursor = { session_id: sessionId, offset: dataSent };
-    var commit = { path: destPath, mode: {".tag": 'overwrite' as 'overwrite'}, autorename: false, mute: false };              
+    var cursor = { session_id: sessionId, offset: dataSent }
+    var commit = { path: destPath, mode: {".tag": 'overwrite' as 'overwrite'}, autorename: false, mute: false }
     return dbx.filesUploadSessionFinish({ cursor: cursor, commit: commit })
 }
 

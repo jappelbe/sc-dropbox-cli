@@ -1,9 +1,15 @@
-import { Dropbox, DropboxResponse, files, DropboxAuth, sharing } from 'dropbox'
+import { Dropbox, files, DropboxAuth, sharing } from 'dropbox'
 
 interface IDropboxClientOpts {
     appKey: string
     accessToken?: string
     refreshToken?: string
+}
+
+export interface ILoginOptions {
+    appKey: string,
+    accessToken?: string,
+    refreshToken?: string,
 }
 
 export class DropboxClient {

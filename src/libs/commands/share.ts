@@ -1,4 +1,4 @@
-import { DropboxClient } from './dropbox.js'
+import { DropboxClient, ILoginOptions } from '../../dropbox.js'
 import { Dropbox, sharing } from 'dropbox'
 
 type TAccesLevels = 'viewer' | 'editor' | 'owner'
@@ -8,18 +8,12 @@ interface IShareFile {
     users: string[] | undefined
     recursive?: boolean
     accessLevel?: TAccesLevels
-    appKey: string
-    accessToken?: string
-    refreshToken?: string
+    loginOptions: ILoginOptions
 }
 
 export async function sharePath(opts: IShareFile) {
-    console.log(JSON.stringify(`opts: ${JSON.stringify(opts)}`))
-    const dropboxClient = new DropboxClient({
-        appKey: opts.appKey,
-        accessToken: opts.accessToken,
-        refreshToken: opts.refreshToken
-    })
+    //console.log(JSON.stringify(`opts: ${JSON.stringify(opts)}`))
+    const dropboxClient = new DropboxClient(opts.loginOptions)
     const dbx = await dropboxClient.getClient()
     const res = await dbx.sharingListFileMembers({
         file: opts.path
