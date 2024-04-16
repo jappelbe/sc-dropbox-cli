@@ -15,9 +15,6 @@ export async function sharePath(opts: IShareFile) {
     //console.log(JSON.stringify(`opts: ${JSON.stringify(opts)}`))
     const dropboxClient = new DropboxClient(opts.loginOptions)
     const dbx = await dropboxClient.getClient()
-    const res = await dbx.sharingListFileMembers({
-        file: opts.path
-    })
 
     let memberSelectorEmails: sharing.MemberSelectorEmail[] = []
     if (opts.users && opts.users.length > 0) {
@@ -32,14 +29,45 @@ export async function sharePath(opts: IShareFile) {
         if (opts.accessLevel) {
             accessLevel = { '.tag': opts.accessLevel }
         }
+        if (!opts.users || opts.users.length < 1) {
+            console.log('No users listed to share with')
+            return
+        }
+        const emailCsv = memberSelectorEmails.map((e) => { return e.email }).join(',')
         if (await dropboxClient.pathIsFile(opts.path)) {
-            if (opts.users) {
-                console.log(`Setting '${accessLevel['.tag']}' access to users '${memberSelectorEmails.map((e) => { return e.email }).join(',')}'`)
-                await dbx.sharingAddFileMember({
-                    file: opts.path,
-                    members: memberSelectorEmails,
-                    access_level: accessLevel
+            console.log(`Setting '${accessLevel['.tag']}' access to users '${emailCsv}' on file '${opts.path}'`)
+            await dbx.sharingAddFileMember({
+                file: opts.path,
+                members: memberSelectorEmails,
+                access_level: accessLevel
+            })
+        } else if (await dropboxClient.pathIsFolder(opts.path)) {
+            console.log(`Setting '${accessLevel['.tag']}' access to users '${emailCsv}' on folder '${opts.path}'`)
+            let sharedFolderId = await dropboxClient.getSharedFolderId(opts.path)
+            if (sharedFolderId) {
+                console.log(`Path '${opts.path}' is already shared with id '${sharedFolderId}'`)
+            } else {
+                console.log(`Path '${opts.path}' has not been shared yet, making it into a shared folder`)
+                const res = await dbx.sharingShareFolder({
+                    path: opts.path,
+                    force_async: true
                 })
+                if (res.status < 200 || res.status > 299) {
+                    throw Error(`Error making '${opts.path}' into a shared folder: ${res.status} '${JSON.stringify(res.result)}'`)
+                }
+                sharedFolderId = await dropboxClient.getSharedFolderId(opts.path)
+            }
+            if (sharedFolderId === undefined) {
+                throw new Error(`Could not get a sharedFolderId for '${opts.path}', this is unexpected`)
+            }
+            console.log(`Sharing '${opts.path}' with users: '${emailCsv}'`)
+            const members: sharing.AddMember[] = memberSelectorEmails.map(member => { return {member, access_level: accessLevel}})
+            const res = await dbx.sharingAddFolderMember({
+                shared_folder_id: sharedFolderId,
+                members
+            })
+            if (res.status < 200 || res.status > 299) {
+                throw Error(`Error sharing '${opts.path}' with users: ${JSON.stringify(members)} '${JSON.stringify(res.result)}'`)
             }
         }
     }

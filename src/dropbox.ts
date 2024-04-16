@@ -62,15 +62,33 @@ export class DropboxClient {
         return Promise.resolve( res['.tag'] === 'file' )
     }
 
+    async getSharedFolderId(path: string): Promise<string | undefined> {
+        const metaDataRes = await this.getPathMetadata(path)
+        if (metaDataRes['.tag'] !== 'folder') {
+            return Promise.resolve(undefined)
+        }
+        if ('shared_folder_id' in metaDataRes) {
+            return Promise.resolve(metaDataRes.shared_folder_id as string)
+        }
+    }
+
     async getShareEntities(path: string): Promise<sharing.SharedFileMembers> {
         const client = await this.getClient()
         let res: any
-        if (await this.pathIsFile(path)){
+        if (await this.pathIsFile(path)) {
             res = await client.sharingListFileMembers({
                 file: path
             })
+        } else if (await this.pathIsFolder(path)) {
+            const sharedFolderId = await this.getSharedFolderId(path)
+            if (sharedFolderId === undefined) {
+                throw new Error(`Cannot get shared_folder_id for '${path}'`)
+            }
+            res = await client.sharingListFolderMembers({
+                shared_folder_id: sharedFolderId
+            })
         } else {
-            throw new Error('Sharing folders is not supported yet')
+            throw new Error(`Path '${path}' is neither file or folder, unsupported`)
         }
         if(res.status < 200 || res.status > 299) {
             throw new Error(`Got bad response from Dropbox when trying to read file/folder members'${path}': ${JSON.stringify(res)}`)
