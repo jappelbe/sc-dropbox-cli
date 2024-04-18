@@ -18,7 +18,7 @@ const program = new Command()
 program
     .name("sc-dropbox")
     .usage("[global options] command")
-    .version("0.3.1")
+    .version("0.3.2")
     .description("SC DropBox CLI for uploading files to dropbox. Designed for use by CI-machines")
     .option('-t, --accessToken [dropbox access token]', `Set access token (preferably this should be set in the ENV variable ${ACCESS_TOKEN_ENV_VAR_NAME})`)
     .option('-r, --refreshToken [dropbox refresh token]', 'Set the refresh token, this will not expire unlike the accessToken')
@@ -55,9 +55,12 @@ program.command('share')
     .argument('<path>')
     .argument('[users]', 'Comma-separated list of user emails')
     .option('--accessLevel [access level]', 'AccessLevel for new users. [viewer(default), editor, owner]')
+    .option('--remove-not-listed', 'Set this flag to remove access to the share for all users which are not listed')
     .action(async (path, users, options, command) => await sharePath({
         loginOptions,
         path,
+        accessLevel: options.accessLevel,
+        removeNotListed: options.removeNotListed,
         users: users.split(','),
     }).catch((err) => printError(err)
     ))
