@@ -8,7 +8,7 @@ import { moveFile } from './libs/commands/move.js'
 
 import pkg from 'figlet'
 const { textSync } = pkg;
-import { Command } from 'commander';
+import { Argument, Command, Option} from 'commander';
 
 const ACCESS_TOKEN_ENV_VAR_NAME = 'SC_DROPBOX_TOKEN'
 let accessToken: undefined | string = undefined
@@ -17,12 +17,15 @@ const program = new Command()
 
 program
     .name("sc-dropbox")
-    .usage("[global options] command")
-    .version("0.3.2")
+    .version("0.3.3")
     .description("SC DropBox CLI for uploading files to dropbox. Designed for use by CI-machines")
-    .option('-t, --accessToken [dropbox access token]', `Set access token (preferably this should be set in the ENV variable ${ACCESS_TOKEN_ENV_VAR_NAME})`)
-    .option('-r, --refreshToken [dropbox refresh token]', 'Set the refresh token, this will not expire unlike the accessToken')
-    .option('-k, --appKey <appKey / clientId>', 'The appKey to use, must be set with refreshToken')
+    .addOption(new Option('--refreshToken [dropbox refresh token]',
+            'Set the refresh token, this will not expire unlike the accessToken')
+        .makeOptionMandatory(true)
+        .env(ACCESS_TOKEN_ENV_VAR_NAME))
+    .addOption(new Option('--appKey <appKey / clientId>',
+            'The appKey to use, must be set')
+        .makeOptionMandatory(true))
 
 const loginOptions: ILoginOptions = program.opts()
 
@@ -36,8 +39,10 @@ program.command('upload')
         loginOptions,
         srcPath,
         dstPath
-    }).catch((err) => printError(err)
-    ))
+    }).catch((err) => {
+        printError(err)
+        process.exit(1)
+    }))
 
 program.command('list')
     .description('List files on dropbox account')
@@ -47,13 +52,14 @@ program.command('list')
         loginOptions,
         path,
         recursive: options.recursive
-    }).catch((err) => printError(err)
-    ))
-
+    }).catch((err) => {
+        printError(err)
+        process.exit(1)
+    }))
 program.command('share')
     .description('Share a file with a list of users')
     .argument('<path>')
-    .argument('[users]', 'Comma-separated list of user emails')
+    .addArgument(new Argument('[users]', 'Comma-separated list of user emails').default(''))
     .option('--accessLevel [access level]', 'AccessLevel for new users. [viewer(default), editor, owner]')
     .option('--remove-not-listed', 'Set this flag to remove access to the share for all users which are not listed')
     .action(async (path, users, options, command) => await sharePath({
@@ -62,8 +68,10 @@ program.command('share')
         accessLevel: options.accessLevel,
         removeNotListed: options.removeNotListed,
         users: users.split(','),
-    }).catch((err) => printError(err)
-    ))
+    }).catch((err) => {
+        printError(err)
+        process.exit(1)
+    }))
 
 program.command('remove')
     .description('Will remove the file or directory given')
@@ -73,8 +81,10 @@ program.command('remove')
         loginOptions,
         path,
         recursive: options.recursive
-    }).catch((err) => printError(err)
-    ))
+    }).catch((err) =>{
+        printError(err)
+        process.exit(1)
+    }))
 
 program.command('move')
     .description('Will move the file to location (or id) given')
@@ -84,8 +94,10 @@ program.command('move')
         loginOptions,
         srcPath,
         destPath
-    }).catch((err) => printError(err)
-    ))
+    }).catch((err) => {
+        printError(err)
+        process.exit(1)
+    }))
 
 console.log(textSync('SC-DropBox'))
 
@@ -93,5 +105,5 @@ program.parse()
 
 
 function printError(err: any) {
-    console.log(err)
+    console.error(err)
 }

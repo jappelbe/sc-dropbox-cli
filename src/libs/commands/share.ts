@@ -65,7 +65,7 @@ interface IDropBoxErr {
 
 // This will not remove groups
 async function removeSharedUsers(dropboxClient: DropboxClient, opts: IRemoveSharedUsers) {
-    console.log(`Removing users for path ${opts.path}`)
+    console.log(`Pruning excess users for path ${opts.path}`)
     const sharedEntities = await dropboxClient.getShareEntities(opts.path)
     let usersToRemove = sharedEntities.users
     if (opts.keep !== undefined) {
@@ -77,7 +77,11 @@ async function removeSharedUsers(dropboxClient: DropboxClient, opts: IRemoveShar
         invited: sharedEntities.invitees
     }
     for (const userType in currentUsers) {
-        console.log(`\tRemoving ${userType}:`)
+        console.log(`\tChecking ${userType}:`)
+        if (currentUsers[userType].length < 1) {
+            console.log(`\t- [None]`)
+            continue
+        }
         for (const e of currentUsers[userType]) {
             let email
             let displayName
@@ -219,7 +223,7 @@ async function listShare(dropboxClient: DropboxClient, opts: IShareFile) {
     console.log('** groups:')
     for (const e of sharedEntities.groups) {
         console.log(`\t- ${e.group.group_name}`)
-        console.log(`\t\t id: ${e.group.group_id}`)
+        //console.log(`\t\t id: ${e.group.group_id}`)
         console.log(`\t\t access: ${e.access_type['.tag']}`)
     }
     console.log('** Invitees:')
