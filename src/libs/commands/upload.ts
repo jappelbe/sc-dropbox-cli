@@ -2,7 +2,7 @@ import { DropboxClient, ILoginOptions } from '../../dropbox.js'
 import { DropboxResponse, files } from 'dropbox'
 import * as fs from 'fs'
 import * as Path from 'path'
-import { DropboxContentHasherTS }from '../ext/dropbox_content_hasher.js'
+import { UploadChunk } from '../upload/chunk.js'
 
 interface IUploadFile {
     srcPath: string
@@ -40,45 +40,51 @@ async function uploadInChunks(dropboxClient: DropboxClient, filePath: string, de
     let sessionId: undefined | string
     let chunkIdx = 0
     let dataSent = 0
-    let prevUploadPromise: Promise<DropboxResponse<void>> | undefined
-    const maxWorkers = 1
+    let prevUploadPromise: Promise<void> | undefined
+    const tStart = process.hrtime.bigint()
+
+    // For the first chunk: wait until chunk done (So we get the sessionID)
+    // For subsequent chunks:
+    // 1. prepare chunk <N>
+    // 2. wait for chunk <N - 1> to finish uploading
+    // 3. put chunk <N> to upload but do not wait
+    // 4. Goto 1
+    // On a m1max macbook the preparation takes 0.86s for a 1.2gb file so it's a minor optimization
+    // Improvement: Add a class to manage the entire session
     for await (const chunk of readStream) {
-        const dbContentHasher = new DropboxContentHasherTS
-        dbContentHasher.update(chunk, undefined)
-        const sha256Str = dbContentHasher.digest('hex')
+        const chunkUpload = new UploadChunk(chunk, {
+            chunkIdx,
+            dataSent,
+            fileSize,
+            sessionId,
+            retryCount: 5,
+            retryIncrementMultiplier: 5,
+            retryWaitMs: 1000
+        })
+
+        await chunkUpload.prepare()
         if (chunkIdx === 0) {
-            console.log('First Chunk')
-            const dbxResp = await dbx.filesUploadSessionStart({ close: false, contents: chunk, content_hash: sha256Str})
-            sessionId = dbxResp.result.session_id
-        } else {
+            // First chunk gets the sessionID
+            await chunkUpload.uploadChunkWithRetry(dbx)
+            sessionId = chunkUpload.sessionId
             if (sessionId === undefined) {
-                throw new Error("uploadInChunks(): No sessionId! Stopping");
+                throw new Error(`Could not get the session id from first chunk upload!`)
             }
-            console.log(`${Math.round((dataSent * 100) / fileSize)}% done`)
-            const cursor = { session_id: sessionId, offset: dataSent }
-            let response: DropboxResponse<void> | undefined
+        } else {
             if (prevUploadPromise) {
-                response = await prevUploadPromise
+                await prevUploadPromise
             }
-            prevUploadPromise = dbx.filesUploadSessionAppendV2({ cursor: cursor, close: false, contents: chunk, content_hash: sha256Str })
-            if (response) {
-                if (response.status < 200 || response.status > 299) {
-                    console.log(`Upload error: ${response.status} on chunk ${chunkIdx}`)
-                    throw new Error(`Upload error: ${response.status} on chunk ${chunkIdx}`)
-                }
-            }
+            prevUploadPromise = chunkUpload.uploadChunkWithRetry(dbx)
         }
         chunkIdx += 1
         dataSent += chunk.length
     }
     if (prevUploadPromise) {
-        const response = await prevUploadPromise
-        if (response) {
-            if (response.status < 200 || response.status > 299) {
-                console.log(`Upload error: ${response.status} on chunk ${chunkIdx}`)
-            }
-        }
+        await prevUploadPromise
     }
+
+    const tDoneBignumMs = (process.hrtime.bigint() - tStart) / BigInt(1000 * 1000)
+    console.log(`Upload done in ${Number(tDoneBignumMs)/1000}s`)
     
     if (sessionId === undefined) {
         throw new Error("uploadInChunks(): File end: No sessionId! Stopping");
