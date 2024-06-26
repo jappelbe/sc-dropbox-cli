@@ -36,7 +36,7 @@ Options:
   -h, --help                              display help for command
 
 Commands:
-  upload <srcPath> <dstPath>              Upload a file
+  upload [options] <srcPath> <dstPath>    Upload a file
   list [options] [path]                   List files on dropbox account
   share [options] <path> [users]          Share a file with a list of users
   remove [options] <path>                 Will remove the file or directory given
