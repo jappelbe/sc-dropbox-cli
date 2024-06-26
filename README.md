@@ -1,7 +1,14 @@
 # sc-dropbox-client
 SuperCool dropbox client
 
-This only does upload of a single file. It might do more if more is required at some point.
+Current functionality:
+- upload one file
+- upload a folder recursively
+- list files
+- share file
+- share folder
+- remove files
+- move file
 
 ## Usage
 
