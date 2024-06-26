@@ -4,6 +4,10 @@ import * as fs from 'fs'
 import * as Path from 'path'
 import { UploadChunk } from '../upload/chunk.js'
 
+const MAX_BATCH_SIZE = 1000
+const MAX_BATCH_CONCURRENCY = 20
+const BATCH_RETRIES = 3
+
 interface IUploadFile {
     srcPath: string
     dstPath: string
@@ -15,9 +19,27 @@ export async function uploadFile(opts: IUploadFile) {
     //console.log(JSON.stringify(`opts: ${JSON.stringify(opts)}`))
     const dropboxClient = new DropboxClient(opts.loginOptions)
     const dbClient = await dropboxClient
-    await dropBoxUploadFile(dbClient, opts.srcPath, opts.dstPath)
+    const pathIsDir = fs.lstatSync(opts.srcPath).isDirectory()
+    if (opts.recursive) {
+        if (!pathIsDir) {
+            console.warn (`Provided path '${opts.srcPath}' is not a folder. Please use the --'recursive' flag only to upload a folder`)
+            process.exit(1)
+        }
+        await dropBoxUploadFolder(dbClient, opts.srcPath, opts.dstPath)
+    } else {
+        if (pathIsDir) {
+            console.warn (`Provided path '${opts.srcPath}' is a folder. Please use the --'recursive' flag to upload a folder`)
+            process.exit(1)
+        }
+        await dropBoxUploadFile(dbClient, opts.srcPath, opts.dstPath)
+    }
 }
 
+interface IUploadTask {
+    srcPath: string,
+    destPath: string,
+    sessionId?: string
+}
 
 function getAbsFilePath(path: string): string {
     let absFilePath = ""
@@ -29,15 +51,24 @@ function getAbsFilePath(path: string): string {
     return absFilePath
 }
 
-async function uploadInChunks(dropboxClient: DropboxClient, filePath: string, destPath: string): Promise<DropboxResponse<files.FileMetadata>> {
-    const maxChunkSize = 64 * 1024 * 1024; // 64MB - Dropbox JavaScript API suggested chunk size 8MB, max 150. API doens't allow parallel chunks
-                                           // so compromise on 64MB
+export interface IUploadInChunksRes {
+    dropboxRes?: DropboxResponse<files.FileMetadata>
+    uploadFinishArg: files.UploadSessionFinishArg
+}
+
+async function uploadInChunks(dropboxClient: DropboxClient, task: IUploadTask): Promise<IUploadInChunksRes> {
+    const maxChunkSize = 16 * 4194304   // 64MB - Dropbox JavaScript API suggested chunk size 8MB, max 150. API doens't allow parallel chunks
+                                        // so compromise on 64MB
+                                        // Additionally for concurrent uploads you must use a chunk size that is a multiple of 4MB
+    const filePath = task.srcPath
+    const destPath = task.destPath
+    let sessionId = task.sessionId
+
     var readStream = fs.createReadStream(filePath,{ highWaterMark: maxChunkSize, encoding: undefined });
 
     const fileSize = fs.statSync(filePath).size
 
     const dbx = await dropboxClient.getClient()
-    let sessionId: undefined | string
     let chunkIdx = 0
     let dataSent = 0
     let prevUploadPromise: Promise<void> | undefined
@@ -66,9 +97,11 @@ async function uploadInChunks(dropboxClient: DropboxClient, filePath: string, de
         if (chunkIdx === 0) {
             // First chunk gets the sessionID
             await chunkUpload.uploadChunkWithRetry(dbx)
-            sessionId = chunkUpload.sessionId
             if (sessionId === undefined) {
-                throw new Error(`Could not get the session id from first chunk upload!`)
+                sessionId = chunkUpload.sessionId
+            }
+            if (sessionId === undefined) {
+                throw new Error(`Could not get the session id from first chunk upload and it wasn't defined by batch!`)
             }
         } else {
             if (prevUploadPromise) {
@@ -92,10 +125,19 @@ async function uploadInChunks(dropboxClient: DropboxClient, filePath: string, de
     console.log(`dataSent=${dataSent}, fileSize = ${fileSize}`)
     var cursor = { session_id: sessionId, offset: dataSent }
     var commit = { path: destPath, mode: {".tag": 'overwrite' as 'overwrite'}, autorename: false, mute: false }
-    return dbx.filesUploadSessionFinish({ cursor: cursor, commit: commit })
+    
+    // If we were provided a sessionId it means we're doing batch upload and don't need to close session per file
+    let dropboxRes = undefined
+    if (task.sessionId === undefined) {
+        dropboxRes = await dbx.filesUploadSessionFinish({ cursor: cursor, commit: commit })
+    }
+    return Promise.resolve({
+        dropboxRes,
+        uploadFinishArg: { cursor: cursor, commit: commit }
+    })
 }
 
-async function dropBoxUploadFile(dbx: DropboxClient, srcPath: string, destPath: string): Promise<void> {
+async function dropBoxUploadFile(dropboxClient: DropboxClient, srcPath: string, destPath: string): Promise<void> {
     const absFilePath = getAbsFilePath(srcPath)
     const fileExists = fs.existsSync(absFilePath)
     if (!fileExists) {
@@ -104,12 +146,100 @@ async function dropBoxUploadFile(dbx: DropboxClient, srcPath: string, destPath: 
 
     try {
         console.log('Upload file')
-        const dbResp = await uploadInChunks(dbx, absFilePath, destPath)
+        const dbResp = await uploadInChunks(dropboxClient, {srcPath: absFilePath, destPath})
 
         console.log('Done!')
         console.log(dbResp);
     } catch(e) {
         console.log(`Error uploading file '${e}'`)
+        Promise.reject(e)
+    }
+}
+
+async function dropBoxUploadFolder(dropboxClient: DropboxClient, srcPath: string, destPath: string): Promise<void> {
+    const absDirPath = getAbsFilePath(srcPath)
+    const fileExists = fs.existsSync(absDirPath)
+    if (!fileExists) {
+        return Promise.reject(`Error: File or folder '${absDirPath}' doesn't exist`)
+    }
+
+    try {
+        console.log(`Upload folder`)
+
+        const uploadTasks: IUploadTask[] = []
+        const entries = fs.readdirSync(absDirPath, {withFileTypes: true, recursive: true})
+        for (const fsEntry of entries) {
+            if (!fsEntry.isFile()){
+                if (fsEntry.isDirectory()) {
+                    console.debug(`${fsEntry.name} is a folder`)
+                } else {
+                    throw new Error(`${fsEntry.name} is not a file nor folder!`)
+                }
+                continue
+            }
+            const absFilePath = Path.join(fsEntry.path, fsEntry.name)
+            uploadTasks.push({
+                srcPath: absFilePath,
+                destPath: Path.join(destPath, Path.relative(absDirPath, absFilePath))
+            })
+        }
+
+        const dbx = await dropboxClient.getClient()
+
+        while (uploadTasks.length > 0) {
+            const batchSize = Math.min(uploadTasks.length, MAX_BATCH_SIZE)
+            const batchTasks = uploadTasks.splice(0, batchSize)
+            const batchRes = await dbx.filesUploadSessionStartBatch({
+                num_sessions: batchSize,
+                session_type: {".tag": 'sequential'}
+            })
+            const sessionIds = [...batchRes.result.session_ids]
+
+            if (sessionIds.length !== batchSize) {
+                throw new Error(`Internal assertion failure. SessionIDs count for batch doesn't match batch tasks amount! ${batchSize} !== ${sessionIds.length}`)
+            }
+
+            const workers: Promise<boolean>[] = []
+
+            for (const task of batchTasks) {
+                task.sessionId = sessionIds.pop()
+            }
+
+            const results: IUploadInChunksRes[] = []
+            for (let i = 0 ; i < MAX_BATCH_CONCURRENCY ; i++) {
+                const worker = new Promise<boolean>(async (resolve, reject) => {
+                    let task = batchTasks.pop()
+                    let retries = BATCH_RETRIES
+                    while (task) {
+                        try {
+                            const chunkUploadRes = await uploadInChunks(dropboxClient, task)
+                            results.push(chunkUploadRes)
+                        } catch (err) {
+                            if (retries > 0) {
+                                retries -= 1
+                                console.error(`Failed to upload task (retries ${retries}): ${JSON.stringify(task)}: ${err}`)
+                                continue
+                            } else {
+                                return reject()
+                            }
+                        }
+
+                        retries = BATCH_RETRIES
+                        task = batchTasks.pop()
+                    }
+                    return resolve(true)
+                })
+                workers.push(worker)
+            }
+            await Promise.all(workers)
+            const entries = results.map ((result) => { return result.uploadFinishArg })
+            console.log(`entries: ${JSON.stringify(entries)}`)
+            await dbx.filesUploadSessionFinishBatchV2({
+                entries
+            })
+        }
+    } catch(e) {
+        console.log(`Error uploading folder '${e}'`)
         Promise.reject(e)
     }
 }

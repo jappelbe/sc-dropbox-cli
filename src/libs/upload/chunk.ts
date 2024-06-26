@@ -51,7 +51,7 @@ export class UploadChunk implements IUploadChunkOpts {
         if (this.sha256Str.length < 1) {
             throw new Error(`sha256 zero length for uploadChunk ${this.chunkIdx}!`)
         }
-        if (this.chunkIdx === 0) {
+        if (this.sessionId === undefined) {
             console.log('First Chunk')
             const dbxResp = await dbx.filesUploadSessionStart({
                 close: false,
@@ -60,14 +60,15 @@ export class UploadChunk implements IUploadChunkOpts {
             })
             this.sessionId = dbxResp.result.session_id
         } else {
-            if (this.sessionId === undefined) {
-                throw new Error("UploadChunk.uploadChunk(): No sessionId! Stopping");
-            }
             console.log(`${Math.round((this.dataSent * 100) / this.fileSize)}% done`)
             const cursor = { session_id: this.sessionId, offset: this.dataSent }
+            let close = false
+            if (this.dataSent + this.chunk.length === this.fileSize) {
+                close = true
+            }
             let response = await dbx.filesUploadSessionAppendV2({
-                cursor: cursor,
-                close: false,
+                cursor,
+                close,
                 contents: this.chunk,
                 content_hash: this.sha256Str })
             if (response) {
@@ -96,7 +97,7 @@ export class UploadChunk implements IUploadChunkOpts {
                 }
                 retriesToGo -= 1
                 const retryWaitTimeMs = this.retryWaitMs * this.retryIncrementMultiplier
-                console.warn(`Error uploading chunk ${this.chunkIdx}. Retries left: ${retriesToGo}. Waiting ${retryWaitTimeMs}ms`)
+                console.warn(`Error uploading chunk ${this.chunkIdx}. Retries left: ${retriesToGo}. Waiting ${retryWaitTimeMs}ms: ${JSON.stringify(err)}`)
                 await sleep(retryWaitTimeMs)
             }
         }

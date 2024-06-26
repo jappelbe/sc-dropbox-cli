@@ -17,7 +17,7 @@ const program = new Command()
 
 program
     .name("sc-dropbox")
-    .version("0.3.4")
+    .version("0.4.0")
     .description("SC DropBox CLI for uploading files to dropbox. Designed for use by CI-machines")
     .addOption(new Option('--refreshToken [dropbox refresh token]',
             'Set the refresh token, this will not expire unlike the accessToken')
@@ -35,10 +35,12 @@ program.command('upload')
     .description('Upload a file')
     .argument('<srcPath>', 'Path of file to upload')
     .argument('<dstPath>', 'Path in dropbox to store the file')
+    .addOption(new Option('--recursive', 'Upload a folder recursively').default(false))
     .action(async (srcPath, dstPath, options, command) => await uploadFile({
+        dstPath,
         loginOptions,
+        recursive: options.recursive,
         srcPath,
-        dstPath
     }).catch((err) => {
         printError(err)
         process.exit(1)
