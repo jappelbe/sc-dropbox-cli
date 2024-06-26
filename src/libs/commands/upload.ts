@@ -36,8 +36,9 @@ export async function uploadFile(opts: IUploadFile) {
 }
 
 interface IUploadTask {
-    srcPath: string,
-    destPath: string,
+    batchUpload: boolean
+    srcPath: string
+    destPath: string
     sessionId?: string
 }
 
@@ -84,6 +85,7 @@ async function uploadInChunks(dropboxClient: DropboxClient, task: IUploadTask): 
     // Improvement: Add a class to manage the entire session
     for await (const chunk of readStream) {
         const chunkUpload = new UploadChunk(chunk, {
+            batchUpload: task.batchUpload,
             chunkIdx,
             dataSent,
             fileSize,
@@ -95,7 +97,7 @@ async function uploadInChunks(dropboxClient: DropboxClient, task: IUploadTask): 
 
         await chunkUpload.prepare()
         if (chunkIdx === 0) {
-            // First chunk gets the sessionID
+            // First chunk gets the sessionID unless this is a batch-upload
             await chunkUpload.uploadChunkWithRetry(dbx)
             if (sessionId === undefined) {
                 sessionId = chunkUpload.sessionId
@@ -117,12 +119,11 @@ async function uploadInChunks(dropboxClient: DropboxClient, task: IUploadTask): 
     }
 
     const tDoneBignumMs = (process.hrtime.bigint() - tStart) / BigInt(1000 * 1000)
-    console.log(`Upload done in ${Number(tDoneBignumMs)/1000}s`)
+    console.log(`${task.srcPath} [${fileSize}bytes]- Upload done in ${Number(tDoneBignumMs)/1000}s`)
     
     if (sessionId === undefined) {
         throw new Error("uploadInChunks(): File end: No sessionId! Stopping");
     }
-    console.log(`dataSent=${dataSent}, fileSize = ${fileSize}`)
     var cursor = { session_id: sessionId, offset: dataSent }
     var commit = { path: destPath, mode: {".tag": 'overwrite' as 'overwrite'}, autorename: false, mute: false }
     
@@ -146,7 +147,7 @@ async function dropBoxUploadFile(dropboxClient: DropboxClient, srcPath: string, 
 
     try {
         console.log('Upload file')
-        const dbResp = await uploadInChunks(dropboxClient, {srcPath: absFilePath, destPath})
+        const dbResp = await uploadInChunks(dropboxClient, {srcPath: absFilePath, destPath, batchUpload: false})
 
         console.log('Done!')
         console.log(dbResp);
@@ -171,7 +172,7 @@ async function dropBoxUploadFolder(dropboxClient: DropboxClient, srcPath: string
         for (const fsEntry of entries) {
             if (!fsEntry.isFile()){
                 if (fsEntry.isDirectory()) {
-                    console.debug(`${fsEntry.name} is a folder`)
+                    //console.debug(`${fsEntry.name} is a folder`)
                 } else {
                     throw new Error(`${fsEntry.name} is not a file nor folder!`)
                 }
@@ -179,12 +180,15 @@ async function dropBoxUploadFolder(dropboxClient: DropboxClient, srcPath: string
             }
             const absFilePath = Path.join(fsEntry.path, fsEntry.name)
             uploadTasks.push({
+                batchUpload: true,
                 srcPath: absFilePath,
                 destPath: Path.join(destPath, Path.relative(absDirPath, absFilePath))
             })
         }
 
         const dbx = await dropboxClient.getClient()
+        const totalUploadTasks = uploadTasks.length
+        let uploadTasksCompleted = 0
 
         while (uploadTasks.length > 0) {
             const batchSize = Math.min(uploadTasks.length, MAX_BATCH_SIZE)
@@ -214,6 +218,8 @@ async function dropBoxUploadFolder(dropboxClient: DropboxClient, srcPath: string
                         try {
                             const chunkUploadRes = await uploadInChunks(dropboxClient, task)
                             results.push(chunkUploadRes)
+                            uploadTasksCompleted += 1
+                            console.log(`[${uploadTasksCompleted}/${totalUploadTasks}] upload tasks done`)
                         } catch (err) {
                             if (retries > 0) {
                                 retries -= 1
@@ -233,7 +239,6 @@ async function dropBoxUploadFolder(dropboxClient: DropboxClient, srcPath: string
             }
             await Promise.all(workers)
             const entries = results.map ((result) => { return result.uploadFinishArg })
-            console.log(`entries: ${JSON.stringify(entries)}`)
             await dbx.filesUploadSessionFinishBatchV2({
                 entries
             })

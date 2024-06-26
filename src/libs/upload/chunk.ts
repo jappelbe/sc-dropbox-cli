@@ -3,6 +3,7 @@ import { DropboxContentHasherTS } from "../ext/dropbox_content_hasher.js"
 import { sleep } from "../utils.js"
 
 export interface IUploadChunkOpts {
+    batchUpload: boolean
     chunkIdx: number
     dataSent: number
     fileSize: number
@@ -13,6 +14,7 @@ export interface IUploadChunkOpts {
 }
 
 export class UploadChunk implements IUploadChunkOpts {
+    batchUpload: boolean
     chunk: any
     chunkIdx: number
     dataSent: number
@@ -26,6 +28,7 @@ export class UploadChunk implements IUploadChunkOpts {
     status: 'not_started' | 'done' | 'error'
 
     constructor(chunk: any, opts: IUploadChunkOpts) {
+        this.batchUpload = opts.batchUpload
         this.chunk = chunk
         this.chunkIdx = opts.chunkIdx
         this.dataSent = opts.dataSent
@@ -60,7 +63,9 @@ export class UploadChunk implements IUploadChunkOpts {
             })
             this.sessionId = dbxResp.result.session_id
         } else {
-            console.log(`${Math.round((this.dataSent * 100) / this.fileSize)}% done`)
+            if (!this.batchUpload) {
+                console.log(`${Math.round((this.dataSent * 100) / this.fileSize)}% done`)
+            }
             const cursor = { session_id: this.sessionId, offset: this.dataSent }
             let close = false
             if (this.dataSent + this.chunk.length === this.fileSize) {

@@ -17,7 +17,7 @@ const program = new Command()
 
 program
     .name("sc-dropbox")
-    .version("0.4.0")
+    .version("0.4.1")
     .description("SC DropBox CLI for uploading files to dropbox. Designed for use by CI-machines")
     .addOption(new Option('--refreshToken [dropbox refresh token]',
             'Set the refresh token, this will not expire unlike the accessToken')
