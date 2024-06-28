@@ -41,6 +41,7 @@ Commands:
   share [options] <path> [users]          Share a file with a list of users
   remove [options] <path>                 Will remove the file or directory given
   move <srcPath> <dstPath>                Will move the file to location (or id) given
+  accountinfo                             Prints info on the current account
   help [command]                          display help for command
 ```
 
