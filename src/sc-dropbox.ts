@@ -1,10 +1,14 @@
 #! /usr/bin/env node
 import { ILoginOptions } from './dropbox.js'
+
+// Commands
+import { accountInfo } from './libs/commands/accountinfo.js'
 import { listFiles } from './libs/commands/list.js'
+import { moveFile } from './libs/commands/move.js'
+import { removePath } from './libs/commands/remove.js'
 import { uploadFile } from './libs/commands/upload.js'
 import { sharePath } from './libs/commands/share.js'
-import { removePath } from './libs/commands/remove.js'
-import { moveFile } from './libs/commands/move.js'
+
 
 import pkg from 'figlet'
 const { textSync } = pkg;
@@ -17,7 +21,7 @@ const program = new Command()
 
 program
     .name("sc-dropbox")
-    .version("0.4.1")
+    .version("0.4.2")
     .description("SC DropBox CLI for uploading files to dropbox. Designed for use by CI-machines")
     .addOption(new Option('--refreshToken [dropbox refresh token]',
             'Set the refresh token, this will not expire unlike the accessToken')
@@ -96,6 +100,16 @@ program.command('move')
         loginOptions,
         srcPath,
         destPath
+    }).catch((err) => {
+        printError(err)
+        process.exit(1)
+    }))
+
+
+program.command('accountinfo')
+    .description('Prints info on the current account')
+    .action(() => accountInfo({
+        loginOptions
     }).catch((err) => {
         printError(err)
         process.exit(1)
