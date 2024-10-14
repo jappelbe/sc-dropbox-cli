@@ -21,7 +21,7 @@ const program = new Command()
 
 program
     .name("sc-dropbox")
-    .version("0.4.2")
+    .version("0.4.3")
     .description("SC DropBox CLI for uploading files to dropbox. Designed for use by CI-machines")
     .addOption(new Option('--refreshToken [dropbox refresh token]',
             'Set the refresh token, this will not expire unlike the accessToken')
@@ -68,12 +68,14 @@ program.command('share')
     .addArgument(new Argument('[users]', 'Comma-separated list of user emails').default(''))
     .option('--accessLevel [access level]', 'AccessLevel for new users. [viewer(default), editor, owner]')
     .option('--remove-not-listed', 'Set this flag to remove access to the share for all users which are not listed')
+    .addOption(new Option('--quiet', 'Do not send notifications of this share-operation').default(false))
     .action(async (path, users, options, command) => await sharePath({
         loginOptions,
         path,
         accessLevel: options.accessLevel,
         removeNotListed: options.removeNotListed,
         users: users.split(','),
+        quiet: options.quiet
     }).catch((err) => {
         printError(err)
         process.exit(1)

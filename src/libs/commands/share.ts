@@ -10,6 +10,7 @@ interface IShareFile {
     accessLevel?: TAccesLevels
     removeNotListed: boolean
     loginOptions: ILoginOptions
+    quiet: boolean
 }
 
 async function createSharedFolder(dbx: Dropbox, path: string): Promise<void> {
@@ -85,6 +86,10 @@ async function removeSharedUsers(dropboxClient: DropboxClient, opts: IRemoveShar
         for (const e of currentUsers[userType]) {
             let email
             let displayName
+            if (e.is_inherited) {
+                console.log(`\t- Skipping user ${e.user.display_name} they have inherited access`)
+                continue
+            }
             if (userType === 'active') {
                 email = e.user.email
                 displayName = e.user.display_name
@@ -98,44 +103,12 @@ async function removeSharedUsers(dropboxClient: DropboxClient, opts: IRemoveShar
             } else {
                 console.log(`\t- Removing user ${displayName}`)
                 const dbx = await dropboxClient.getClient()
-                let removeRes
                 if (await dropboxClient.pathIsFile(opts.path)) {
-                    try {
-                        removeRes = await dbx.sharingRemoveFileMember2({
-                            file: opts.path,
-                            member: {
-                                '.tag': 'email',
-                                email
-                            }
-                        })
-                    } catch (err) {
-                        const dropboxError = err as IDropBoxErr
-                        if (dropboxError.error?.error?.['.tag'] === 'no_explicit_access') {
-                            console.log('\t\tUser doesn\'t have explicit access to the file, ignoring')
-                            continue
-                        } else {
-                            throw err
-                        }
-                    }
+                    await removeSharedUserFromFile(dbx, opts, email, e)
                 } else if (await dropboxClient.pathIsFolder(opts.path)) {
-                    const sharedFolderId = await dropboxClient.getSharedFolderId(opts.path)
-                    if (sharedFolderId === undefined) {
-                        throw Error(`Trying to remove users from '${opts.path}' but it's not a shared folder!`)
-                    }
-                    console.log(`--- Removing user ${email} from sharedFolderId: ${sharedFolderId} type:'${userType}'`)
-                    removeRes = await dbx.sharingRemoveFolderMember({
-                        shared_folder_id: sharedFolderId,
-                        member: {
-                            '.tag': 'email',
-                            email: email
-                        },
-                        leave_a_copy: false // Required when a share is within a team folder
-                    })
+                    await removeSharedUserFromFolder(dbx, dropboxClient, opts, email, e, userType)
                 } else {
                     throw Error (`RemoveSharedUsers: Unsupported type of path '${opts.path}'`)
-                }
-                if (!removeRes || removeRes.status < 200 || removeRes.status > 299) {
-                    throw Error(`RemoveSharedUsers: Failed to remove '${e.user.display_name}' from '${opts.path}': ${JSON.stringify(removeRes)}`)
                 }
             }
         }
@@ -146,6 +119,8 @@ export async function sharePath(opts: IShareFile) {
     //console.log(JSON.stringify(`opts: ${JSON.stringify(opts)}`))
     const dropboxClient = new DropboxClient(opts.loginOptions)
     const dbx = await dropboxClient.getClient()
+    const quiet = opts.quiet
+    console.log(`Notifications enabled: ${quiet === false}`)
 
     let memberSelectorEmails: sharing.MemberSelectorEmail[] = []
     if (opts.users && opts.users.length > 0) {
@@ -175,7 +150,8 @@ export async function sharePath(opts: IShareFile) {
             const shareFileRes = await dbx.sharingAddFileMember({
                 file: opts.path,
                 members: memberSelectorEmails,
-                access_level: accessLevel
+                access_level: accessLevel,
+                quiet
             })
             if (shareFileRes.status < 200 || shareFileRes.status > 299) {
                 throw Error(`Error sharing file '${opts.path}' ${shareFileRes.status} '${JSON.stringify(shareFileRes.result)}'`)
@@ -197,7 +173,8 @@ export async function sharePath(opts: IShareFile) {
             const members: sharing.AddMember[] = memberSelectorEmails.map(member => { return {member, access_level: accessLevel}})
             const res = await dbx.sharingAddFolderMember({
                 shared_folder_id: sharedFolderId,
-                members
+                members,
+                quiet
             })
             if (res.status < 200 || res.status > 299) {
                 throw Error(`Error sharing '${opts.path}' with users: ${JSON.stringify(members)} '${JSON.stringify(res.result)}'`)
@@ -216,9 +193,13 @@ async function listShare(dropboxClient: DropboxClient, opts: IShareFile) {
     const sharedEntities = await dropboxClient.getShareEntities(opts.path)
     console.log('** Users:')
     for (const e of sharedEntities.users) {
+        let inheritedAccessStr = ""
+        if (e.is_inherited) {
+            inheritedAccessStr = ' (inherited)'
+        }
         console.log(`\t- ${e.user.display_name}`)
         console.log(`\t\t email: ${e.user.email}`)
-        console.log(`\t\t access: ${e.access_type['.tag']}`)
+        console.log(`\t\t access: ${e.access_type['.tag']}${inheritedAccessStr}`)
     }
     console.log('** groups:')
     for (const e of sharedEntities.groups) {
@@ -235,4 +216,77 @@ async function listShare(dropboxClient: DropboxClient, opts: IShareFile) {
             console.log(`\t- ${e.invitee.email}`)
         }
     }
+}
+
+async function removeSharedUserFromFile(dbx: Dropbox, opts: IRemoveSharedUsers, email: string, userEntity: any): Promise<void> {
+    let removeRes
+    let handledError = false
+    try {
+        removeRes = await dbx.sharingRemoveFileMember2({
+            file: opts.path,
+            member: {
+                '.tag': 'email',
+                email
+            }
+        })
+    } catch (err) {
+        const dropboxError = err as IDropBoxErr
+        //console.log(JSON.stringify(dropboxError))
+        if (dropboxError.error?.error?.['.tag'] === 'no_explicit_access') {
+            const subError = dropboxError.error as any
+            console.log(`\t\t${subError?.user_message?.text}`)
+            handledError = true
+        } else {
+            console.log('removeSharedUserFromFile: Unhandled error')
+            throw err
+        }
+    }
+    if (handledError) {
+        return Promise.resolve()
+    }
+    if (!removeRes || removeRes.status < 200 || removeRes.status > 299) {
+        throw Error(`removeSharedUserFromFile: Failed to remove '${userEntity.user.display_name}' from '${opts.path}': ${JSON.stringify(removeRes)}`)
+    }
+    return Promise.resolve()
+}
+
+async function removeSharedUserFromFolder(dbx: Dropbox, dropbxClient: DropboxClient, opts: IRemoveSharedUsers, email: string, userEntity: any, userType: string): Promise<void> {
+    let removeRes
+    let handledError = false
+    const sharedFolderId = await dropbxClient.getSharedFolderId(opts.path)
+    if (sharedFolderId === undefined) {
+        throw Error(`Trying to remove users from '${opts.path}' but it's not a shared folder!`)
+    }
+    console.log(`--- Removing user ${email} from sharedFolderId: ${sharedFolderId} type:'${userType}'`)
+    try {
+        removeRes = await dbx.sharingRemoveFolderMember({
+            shared_folder_id: sharedFolderId,
+            member: {
+                '.tag': 'email',
+                email: email
+            },
+            leave_a_copy: false // Required when a share is within a team folder
+        })
+    } catch (err) {
+        const dropboxError = err as IDropBoxErr
+        //console.log(JSON.stringify(dropboxError))
+        if (dropboxError.error?.error?.['.tag'] === 'member_error') {
+            const memberError = (dropboxError.error?.error as any).member_error
+            if (memberError['.tag'] === 'no_explicit_access') {
+                console.log(`\t\t${memberError.warning}`)
+                handledError = true
+            } else {
+                console.log('removeSharedUserFromFolder: Unhandled error')
+                throw err
+            }
+        }
+
+    }
+    if (handledError) {
+        return Promise.resolve()
+    }
+    if (!removeRes || removeRes.status < 200 || removeRes.status > 299) {
+        throw Error(`removeSharedUserFromFolder: Failed to remove '${userEntity.user.display_name}' from '${opts.path}': ${JSON.stringify(removeRes)}`)
+    }
+    return Promise.resolve()
 }
