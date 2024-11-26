@@ -1,5 +1,5 @@
 import { DropboxClient, ILoginOptions } from '../../dropbox.js'
-import { files } from 'dropbox'
+import { files, team } from 'dropbox'
 
 interface IAccountInfo {
     loginOptions: ILoginOptions

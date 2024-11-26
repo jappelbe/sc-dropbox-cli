@@ -1,6 +1,7 @@
-import { Dropbox } from "dropbox"
+import { Dropbox, DropboxResponseError, files } from "dropbox"
 import { DropboxContentHasherTS } from "../ext/dropbox_content_hasher.js"
 import { sleep } from "../utils.js"
+import { RateLimiter } from "./ratelimiter.js"
 
 export interface IUploadChunkOpts {
     batchUpload: boolean
@@ -89,21 +90,24 @@ export class UploadChunk implements IUploadChunkOpts {
         return Promise.resolve()
     }
 
-    async uploadChunkWithRetry(dbx: Dropbox): Promise<void> {
+    async uploadChunkWithRetry(dbx: Dropbox, rateLimiter: RateLimiter): Promise<void> {
         let retriesToGo = this.retryCount
         while(true) {
             try {
+                await rateLimiter.waitUntilUploadAllowed()
                 const res = await this.uploadChunk(dbx)
                 return Promise.resolve(res)
-            } catch (err) {
-                if (retriesToGo < 1) {
-                    console.warn(`uploadInChunks(), chunkId=${this.chunkIdx}. Retried ${this.retryCount} times. Giving up`)
-                    Promise.reject(new Error(`Failed to upload chunk #${this.chunkIdx} after ${this.retryCount} tries. Giving up`))
+            } catch (err: any) {
+                if (!rateLimiter.isRateLimitError(err)) {
+                    if (retriesToGo < 1) {
+                        console.warn(`uploadInChunks(), chunkId=${this.chunkIdx}. Retried ${this.retryCount} times. Giving up`)
+                        Promise.reject(new Error(`Failed to upload chunk #${this.chunkIdx} after ${this.retryCount} tries. Giving up`))
+                    }
+                    retriesToGo -= 1
+                    const retryWaitTimeMs = this.retryWaitMs * this.retryIncrementMultiplier
+                    console.warn(`Error uploading chunk ${this.chunkIdx}. Retries left: ${retriesToGo}. Waiting ${retryWaitTimeMs}ms: ${JSON.stringify(err)}`)
+                    await sleep(retryWaitTimeMs)
                 }
-                retriesToGo -= 1
-                const retryWaitTimeMs = this.retryWaitMs * this.retryIncrementMultiplier
-                console.warn(`Error uploading chunk ${this.chunkIdx}. Retries left: ${retriesToGo}. Waiting ${retryWaitTimeMs}ms: ${JSON.stringify(err)}`)
-                await sleep(retryWaitTimeMs)
             }
         }
     }
