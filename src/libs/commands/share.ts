@@ -1,4 +1,4 @@
-import { DropboxClient, ILoginOptions } from '../../dropbox.js'
+import { DropboxClient, IDropboxClientOpts } from '../../dropbox.js'
 import { Dropbox, sharing } from 'dropbox'
 import * as Utils from '../utils.js'
 
@@ -9,7 +9,7 @@ interface IShareFile {
     users: string[] | undefined
     accessLevel?: TAccesLevels
     removeNotListed: boolean
-    loginOptions: ILoginOptions
+    loginOptions: IDropboxClientOpts
     quiet: boolean
 }
 

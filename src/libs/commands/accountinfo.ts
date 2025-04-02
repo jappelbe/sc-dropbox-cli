@@ -1,8 +1,8 @@
-import { DropboxClient, ILoginOptions } from '../../dropbox.js'
+import { DropboxClient, IDropboxClientOpts } from '../../dropbox.js'
 import { files, team } from 'dropbox'
 
 interface IAccountInfo {
-    loginOptions: ILoginOptions
+    loginOptions: IDropboxClientOpts
 }
 
 type folderEnteries = (files.FileMetadataReference|files.FolderMetadataReference|files.DeletedMetadataReference)[]

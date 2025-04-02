@@ -1,4 +1,4 @@
-import { DropboxClient, ILoginOptions } from '../../dropbox.js'
+import { DropboxClient, IDropboxClientOpts } from '../../dropbox.js'
 import { Dropbox, DropboxResponse, files } from 'dropbox'
 import * as fs from 'fs'
 import * as Path from 'path'
@@ -13,7 +13,7 @@ interface IUploadFile {
     srcPath: string
     dstPath: string
     recursive?: boolean
-    loginOptions: ILoginOptions
+    loginOptions: IDropboxClientOpts
 }
 
 export async function uploadFile(opts: IUploadFile) {

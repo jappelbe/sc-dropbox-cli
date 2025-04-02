@@ -1,20 +1,24 @@
-import { Dropbox, files, DropboxAuth, sharing } from 'dropbox'
+import { Dropbox, DropboxOptions, files, DropboxAuth, sharing, common } from 'dropbox'
 
-interface IDropboxClientOpts {
-    appKey: string
-    accessToken?: string
-    refreshToken?: string
-}
-
-export interface ILoginOptions {
+export interface IDropboxClientOpts {
     appKey: string,
     accessToken?: string,
+    pathRootSharedId?: string,
+    pathRootSharedName?: string,
     refreshToken?: string,
 }
+
+export interface IDropboxClientGetClientOpts {
+    pathRoot: common.PathRoot
+}
+
+export type TFolderEnteries = (files.FileMetadataReference|files.FolderMetadataReference|files.DeletedMetadataReference)[]
 
 export class DropboxClient {
     appKey: string | undefined
     accessToken: string | undefined
+    pathRootSharedId: string | undefined
+    pathRootSharedName: string | undefined
     refreshToken : string | undefined
     client: Dropbox | undefined
 
@@ -22,6 +26,8 @@ export class DropboxClient {
         this.appKey = opts.appKey
         this.accessToken = opts.accessToken
         this.refreshToken = opts.refreshToken
+        this.pathRootSharedId = opts.pathRootSharedId
+        this.pathRootSharedName = opts.pathRootSharedName
         if (!this.refreshToken && !this.accessToken) {
             console.log('DropboxClient: No refreshToken nor accessToken provided!')
             throw new Error('DropboxClient: No refreshToken nor accessToken provided!')
@@ -97,11 +103,69 @@ export class DropboxClient {
     }
 
     async getClient(): Promise<Dropbox> {
-        if(this.client) {
-            return Promise.resolve(this.client)
+        if (this.pathRootSharedId || this.pathRootSharedName) {
+            return this.getHomeClient()
         }
+        return this.getUserRootClient()
+    }
+
+    async getHomeClient(): Promise<Dropbox> {
         const accessToken = await this.getToken()
-        this.client = new Dropbox({accessToken: accessToken})
+        const dropboxConstructOpts: DropboxOptions = {accessToken}
+        let pathRootShareId = this.pathRootSharedId
+
+        if (!pathRootShareId && this.pathRootSharedName) {
+            pathRootShareId = await this.getShareId(this.pathRootSharedName)
+        }
+        if (pathRootShareId) {
+            const pathRoot: common.PathRoot = {'.tag': 'namespace_id', namespace_id: pathRootShareId}
+            dropboxConstructOpts.pathRoot = JSON.stringify(pathRoot)
+        }
+        this.client = new Dropbox(dropboxConstructOpts)
         return Promise.resolve(this.client)
+    }
+
+    async getUserRootClient(): Promise<Dropbox> {
+        const userRootNamespaceId = await this.getUserRootNamespaceId()
+        const accessToken = await this.getToken()
+        const pathRoot: common.PathRoot = {
+            '.tag': 'root',
+            'root': userRootNamespaceId
+        }
+        const dropboxConstructOpts: DropboxOptions = {
+            accessToken,
+            pathRoot: JSON.stringify(pathRoot)
+        }
+        this.client = new Dropbox(dropboxConstructOpts)
+        return Promise.resolve(this.client)
+    }
+
+    private async getShareId(pathRootSharedName: string): Promise<string> {
+        const dbx = await this.getUserRootClient()
+        const res = await dbx.filesListFolder({path: '', recursive: false})
+        const sharedFolders = res.result.entries.filter((entry) => {
+            return ('shared_folder_id' in entry)
+        }) as files.FolderMetadataReference[]
+        const match = sharedFolders.find((sf) => { return sf.path_display === pathRootSharedName})
+        if (!match) {
+            return Promise.reject(`Couldn't find shared resource with name '${pathRootSharedName}'`)
+        }
+        if (!match.shared_folder_id) {
+            return Promise.reject(`no shared_folder id for resource with name '${pathRootSharedName}': ${JSON.stringify(match)}`)
+        }
+        return match.shared_folder_id
+    }
+
+    private async getUserRootNamespaceId(): Promise<string> {
+        try {
+            const accessToken = await this.getToken()
+            const dbx = new Dropbox({accessToken})
+            const res = await dbx.usersGetCurrentAccount()
+            const userRootNamespaceId = res.result.root_info.root_namespace_id
+            return Promise.resolve(userRootNamespaceId)
+        } catch (err) {
+            console.warn(`getUserRootNamespaceId(): failed to fetch user root_namespace_id: ${err}`)
+            return Promise.reject('Failed to fetch userRootNamespaceId')
+        }
     }
 }

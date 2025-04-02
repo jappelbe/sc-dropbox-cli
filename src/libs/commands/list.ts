@@ -1,13 +1,10 @@
-import { DropboxClient, ILoginOptions } from '../../dropbox.js'
-import { files } from 'dropbox'
+import { DropboxClient, IDropboxClientOpts, TFolderEnteries } from '../../dropbox.js'
 
 interface IListFiles {
     path: string
     recursive?: boolean
-    loginOptions: ILoginOptions
+    loginOptions: IDropboxClientOpts
 }
-
-type folderEnteries = (files.FileMetadataReference|files.FolderMetadataReference|files.DeletedMetadataReference)[]
 
 export async function listFiles(opts: IListFiles) {
     //console.log(JSON.stringify(`opts: ${JSON.stringify(opts)}`))
@@ -21,7 +18,7 @@ export async function listFiles(opts: IListFiles) {
     const columns = ['.tag', 'path_display', 'id', 'server_modified', 'shared_folder_id', 'size', 'content_hash']
     console.table(res.result.entries, columns)
     
-    const sharedFolders: folderEnteries = res.result.entries.filter((entry) => {
+    const sharedFolders: TFolderEnteries = res.result.entries.filter((entry) => {
         return ('shared_folder_id' in entry)
     })
 

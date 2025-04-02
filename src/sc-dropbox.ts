@@ -1,5 +1,5 @@
 #! /usr/bin/env node
-import { ILoginOptions } from './dropbox.js'
+import { IDropboxClientOpts } from './dropbox.js'
 
 // Commands
 import { accountInfo } from './libs/commands/accountinfo.js'
@@ -7,6 +7,7 @@ import { listFiles } from './libs/commands/list.js'
 import { moveFile } from './libs/commands/move.js'
 import { removePath } from './libs/commands/remove.js'
 import { uploadFile } from './libs/commands/upload.js'
+import { downloadFile } from './libs/commands/download.js'
 import { sharePath } from './libs/commands/share.js'
 
 
@@ -21,7 +22,7 @@ const program = new Command()
 
 program
     .name("sc-dropbox")
-    .version("0.4.4")
+    .version("0.5.0")
     .description("SC DropBox CLI for uploading files to dropbox. Designed for use by CI-machines")
     .addOption(new Option('--refreshToken [dropbox refresh token]',
             'Set the refresh token, this will not expire unlike the accessToken')
@@ -30,8 +31,14 @@ program
     .addOption(new Option('--appKey <appKey / clientId>',
             'The appKey to use, must be set')
         .makeOptionMandatory(true))
+    .addOption(new Option('--pathRootSharedName <Path to team space>',
+            'If using a team space you can to specify the pathRoot either with --pathRootSharedName or --pathRootSharedId. Use \'listshared\' command to list shares')
+        .makeOptionMandatory(false))
+    .addOption(new Option('--pathRootSharedId <Id of shared team space>',
+        'If using a team space you can to specify the pathRoot either with --pathRootSharedName or --pathRootSharedId. Use \'listshared\' command to list shares')
+        .makeOptionMandatory(false))
 
-const loginOptions: ILoginOptions = program.opts()
+const loginOptions: IDropboxClientOpts = program.opts()
 
 //program.command('help', {isDefault: true})
 
@@ -50,6 +57,23 @@ program.command('upload')
         process.exit(1)
     }))
 
+program.command('download')
+    .description('Download a file')
+    .argument('<srcPath>', 'Path of file to download (in dropbox)')
+    .argument('<dstPath>', 'Path on filesystem to store the file.')
+    .addOption(new Option('--recursive', 'Download a folder recursively').default(false))
+    .addOption(new Option('--overwrite', 'Overwrites existing files').default(false))
+    .action(async (srcPath, dstPath, options, command) => await downloadFile({
+        dstPath,
+        loginOptions,
+        recursive: options.recursive,
+        srcPath,
+        overwrite: options.overwrite
+    }).catch((err) => {
+        printError(err)
+        process.exit(1)
+    }))
+
 program.command('list')
     .description('List files on dropbox account')
     .argument('[path]', 'Path to list', '')
@@ -62,6 +86,7 @@ program.command('list')
         printError(err)
         process.exit(1)
     }))
+
 program.command('share')
     .description('Share a file with a list of users')
     .argument('<path>')

@@ -1,9 +1,9 @@
-import { DropboxClient, ILoginOptions } from '../../dropbox.js'
+import { DropboxClient, IDropboxClientOpts } from '../../dropbox.js'
 
 interface IMoveFile {
     srcPath: string
     destPath: string
-    loginOptions: ILoginOptions
+    loginOptions: IDropboxClientOpts
 }
 
 export async function moveFile(opts: IMoveFile) {

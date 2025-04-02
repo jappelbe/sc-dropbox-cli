@@ -1,9 +1,9 @@
-import { DropboxClient, ILoginOptions } from '../../dropbox.js'
+import { DropboxClient, IDropboxClientOpts } from '../../dropbox.js'
 
 interface IRemoveFile {
     path: string
     recursive?: boolean
-    loginOptions: ILoginOptions
+    loginOptions: IDropboxClientOpts
 }
 
 export async function removePath(opts: IRemoveFile) {
