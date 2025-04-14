@@ -201,10 +201,17 @@ async function dropBoxUploadFolder(dropboxClient: DropboxClient, srcPath: string
 
         const uploadTasks: IUploadTask[] = []
         const entries = fs.readdirSync(absDirPath, {withFileTypes: true, recursive: true})
+        let isAppleBundle = false
+        if (srcPath.match(/.*\.app/i)) {
+            console.log(`FS-entry '${absDirPath}' seems to be an apple application-bundle, fs-entries for those are unreliable, will skip folder checks`)
+            isAppleBundle = true
+        }
         for (const fsEntry of entries) {
             if (!fsEntry.isFile()){
                 if (fsEntry.isDirectory()) {
                     //console.debug(`${fsEntry.name} is a folder`)
+                } else if (isAppleBundle) {
+                    continue
                 } else {
                     throw new Error(`${fsEntry.name} is not a file nor folder!`)
                 }
