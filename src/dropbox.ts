@@ -103,7 +103,7 @@ export class DropboxClient {
     }
 
     async getClient(): Promise<Dropbox> {
-        if (this.pathRootSharedId || this.pathRootSharedName) {
+        if (this.pathRootSharedId || this.pathRootSharedName) {
             return this.getHomeClient()
         }
         return this.getUserRootClient()

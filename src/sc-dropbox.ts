@@ -142,6 +142,15 @@ program.command('accountinfo')
         process.exit(1)
     }))
 
+program.command('listshared')
+    .description('Lists shares with this account')
+    .action(() => accountInfo({
+        loginOptions
+    }).catch((err) => {
+        printError(err)
+        process.exit(1)
+    }))
+
 console.log(textSync('SC-DropBox'))
 
 program.parse()
