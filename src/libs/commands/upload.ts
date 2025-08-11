@@ -217,7 +217,12 @@ async function dropBoxUploadFolder(dropboxClient: DropboxClient, srcPath: string
                 }
                 continue
             }
-            const absFilePath = Path.join(fsEntry.path, fsEntry.name)
+            const fsEntryPath = (fsEntry as any).path
+            if (!fsEntryPath) {
+                console.warn(`dropBoxUploadFolder(), file ${fsEntry.name} has no path, skipping upload`)
+                continue
+            }
+            const absFilePath = Path.join(fsEntryPath, fsEntry.name)
             uploadTasks.push({
                 batchUpload: true,
                 srcPath: absFilePath,
